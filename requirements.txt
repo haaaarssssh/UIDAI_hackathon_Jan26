@@ -9,3 +9,4 @@ folium
 scikit-learn
 pillow
 openpyxl
+duckdb
