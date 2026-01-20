@@ -1117,7 +1117,7 @@ elif view_mode == "Tessera (District)" and selected_dist:
 # Square Layout
 c1, c2, c3 = st.columns([1, 3, 1])
 with c2:
-    st_folium(m, width=700, height=700, returned_objects=[])
+    st_folium(m, width=700, height=600, returned_objects=[])
 
 with st.expander("ℹ️ How to interpret the Access Inequality Map"):
     st.markdown(f"""
