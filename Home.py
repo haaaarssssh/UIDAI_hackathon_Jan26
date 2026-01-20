@@ -565,15 +565,27 @@ tab_nat, tab_sta, tab_dist = st.tabs(["🇮🇳 National View", "🏛️ State M
 with tab_nat: plot_github_waffle(df_nat, "(All India)")
 with tab_sta:
     if not df_sta.empty:
-        s = st.selectbox("Select State:", sorted(df_sta['state'].unique()))
+        s_list = sorted(df_sta['state'].unique())
+        # Default to Maharashtra
+        s_ix = s_list.index('Maharashtra') if 'Maharashtra' in s_list else 0
+        s = st.selectbox("Select State:", s_list, index=s_ix)
         plot_github_waffle(df_sta[df_sta['state'] == s], f"({s})")
+
 with tab_dist:
     if not df_dis.empty:
         c1, c2 = st.columns(2)
-        s_state = c1.selectbox("Filter State:", sorted(df_dis['state'].unique()), key="ds")
-        s_dist = c2.selectbox("Select District:", sorted(df_dis[df_dis['state']==s_state]['district'].unique()), key="dd")
+        
+        # State Selector
+        s_list = sorted(df_dis['state'].unique())
+        s_ix = s_list.index('Maharashtra') if 'Maharashtra' in s_list else 0
+        s_state = c1.selectbox("Filter State:", s_list, index=s_ix, key="ds")
+        
+        # District Selector
+        d_list = sorted(df_dis[df_dis['state']==s_state]['district'].unique())
+        d_ix = d_list.index('Jalgaon') if 'Jalgaon' in d_list else 0
+        s_dist = c2.selectbox("Select District:", d_list, index=d_ix, key="dd")
+        
         plot_github_waffle(df_dis[(df_dis['state']==s_state)&(df_dis['district']==s_dist)], f"({s_dist})")
-
 st.markdown("---")
 
 # ==========================================
