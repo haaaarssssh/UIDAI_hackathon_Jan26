@@ -1,0 +1,5 @@
+.venv
+data/
+Indian_States.txt
+state_wise_districts/
+raw_files/
