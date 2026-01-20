@@ -718,7 +718,7 @@ with st.sidebar:
     # Logic to get the list (df name varies per file: df_dist, df_d, or df_dist)
     # Assuming standard df names from your files (df_dist/df_d)
     
-    if view_level in ["Mosaic (State)", "Tessera (District)"]: # Or "Tessera (Pincode)" for Page 2
+    if view_level in ["Mosaic (State)", "Tessera (District)"]: # Or "Tessera (District)" for Page 2
         # Get list from your specific dataframe
         # Note: Replace 'df_source' with df_dist (Page 1), df_d (Page 2/3)
         states = sorted(df_dist['state'].unique()) if 'df_dist' in locals() else sorted(df_dist['state'].unique())
@@ -727,7 +727,7 @@ with st.sidebar:
         st_ix = states.index('Maharashtra') if 'Maharashtra' in states else 0
         selected_state = st.selectbox("Select State:", states, index=st_ix)
         
-    if view_level == "Tessera (District)": # Or "Tessera (Pincode)" for Page 2
+    if view_level == "Tessera (District)": # Or "Tessera (District)" for Page 2
         # Get list
         source_df = df_dist if 'df_dist' in locals() else df_dist
         dists = sorted(source_df[source_df['state'] == selected_state]['district'].unique())

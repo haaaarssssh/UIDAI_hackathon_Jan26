@@ -412,15 +412,15 @@
 # # --- SIDEBAR View Controller  (FIXED) ---
 # with st.sidebar:
 #     st.header("🔭 View Controller ")
-#     view_level = st.radio("Granularity:", ["Adamento (National)", "Mosaic (State)", "Tessera (Pincode)"])
+#     view_level = st.radio("Granularity:", ["Adamento (National)", "Mosaic (State)", "Tessera (District)"])
     
 #     selected_state, selected_dist = None, None
     
-#     if view_level in ["Mosaic (State)", "Tessera (Pincode)"]:
+#     if view_level in ["Mosaic (State)", "Tessera (District)"]:
 #         state_list = sorted(df_d['state'].unique())
 #         selected_state = st.selectbox("Select State:", state_list)
         
-#     if view_level == "Tessera (Pincode)":
+#     if view_level == "Tessera (District)":
 #         dist_list = sorted(df_d[df_d['state']==selected_state]['district'].unique())
 #         selected_dist = st.selectbox("Select District:", dist_list)
 
@@ -446,7 +446,7 @@
 #     active_df = df_d[df_d['state']==selected_state].copy()
 #     daily_sub = df_daily[df_daily['state']==selected_state].copy()
 #     col = 'district'
-# elif view_level == "Tessera (Pincode)" and selected_dist:
+# elif view_level == "Tessera (District)" and selected_dist:
 #     active_df = df_p[(df_p['state']==selected_state) & (df_p['district']==selected_dist)].copy()
 #     daily_sub = df_daily[(df_daily['state']==selected_state) & (df_daily['district']==selected_dist)].copy()
 #     col = 'pincode'
@@ -637,20 +637,20 @@ df_state, df_dist, df_pin, df_daily = load_data()
 with st.sidebar:
     st.header("🔭 View Controller")
     # Note the options here: Pincode is the last one
-    view_level = st.radio("Granularity:", ["Adamento (National)", "Mosaic (State)", "Tessera (Pincode)"])
+    view_level = st.radio("Granularity:", ["Adamento (National)", "Mosaic (State)", "Tessera (District)"])
     
     selected_state, selected_dist = None, None
     
-    # FIX: Check for "Tessera (Pincode)", not "Tessera (District)"
-    if view_level in ["Mosaic (State)", "Tessera (Pincode)"]:
+    # FIX: Check for "Tessera (District)", not "Tessera (District)"
+    if view_level in ["Mosaic (State)", "Tessera (District)"]:
         states = sorted(df_dist['state'].unique())
         
         # Default to Maharashtra
         st_ix = states.index('Maharashtra') if 'Maharashtra' in states else 0
         selected_state = st.selectbox("Select State:", states, index=st_ix)
         
-    # FIX: Check for "Tessera (Pincode)"
-    if view_level == "Tessera (Pincode)":
+    # FIX: Check for "Tessera (District)"
+    if view_level == "Tessera (District)":
         # Filter districts belonging to the selected state
         dists = sorted(df_dist[df_dist['state'] == selected_state]['district'].unique())
         
