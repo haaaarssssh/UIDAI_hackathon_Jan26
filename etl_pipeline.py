@@ -217,6 +217,179 @@
 
 # print("✅ ETL Complete. Database updated.")
 
+# import pandas as pd
+# import numpy as np
+# import duckdb
+# import os
+# import pgeocode
+# from sklearn.linear_model import LinearRegression
+# from scipy.stats import zscore
+
+# print("🔹 Starting Master ETL Pipeline (With Calendar Aggregates)...")
+
+# # ---------------------------------------------------------
+# # 1. LOAD DATA
+# # ---------------------------------------------------------
+# def load_data():
+#     try:
+#         base_dir = 'data/level4_processing'
+#         if not os.path.exists(base_dir):
+#             print(f"❌ Error: {base_dir} not found. Run create_level4_data.py first.")
+#             exit()
+            
+#         bio = pd.read_csv(os.path.join(base_dir, 'processed_biometric_data.csv'), parse_dates=['date'], dayfirst=True)
+#         enrol = pd.read_csv(os.path.join(base_dir, 'processed_enrolment_data.csv'), parse_dates=['date'], dayfirst=True)
+#         demo = pd.read_csv(os.path.join(base_dir, 'processed_demographic_data.csv'), parse_dates=['date'], dayfirst=True)
+#         return bio, enrol, demo
+#     except Exception as e:
+#         print(f"❌ Error loading data: {e}")
+#         exit()
+
+# df_bio, df_enrol, df_demo = load_data()
+
+# # ---------------------------------------------------------
+# # 2. MERGE
+# # ---------------------------------------------------------
+# print("🔹 Merging Data...")
+# df_merged = df_enrol.merge(df_bio, on=['date', 'state', 'district', 'pincode'], how='outer')\
+#                     .merge(df_demo, on=['date', 'state', 'district', 'pincode'], how='outer').fillna(0)
+
+# df_merged['total_child_enrolments'] = df_merged['age_0_5'] + df_merged['age_5_17']
+# df_merged['total_adult_enrolments'] = df_merged['age_18_greater']
+# df_merged['total_enrol'] = df_merged['total_child_enrolments'] + df_merged['total_adult_enrolments']
+# df_merged['total_bio'] = df_merged['bio_age_5_17'] + df_merged['bio_age_17_']
+# df_merged['total_demo'] = df_merged['demo_age_5_17'] + df_merged['demo_age_17_']
+# df_merged['total_transactions'] = df_merged['total_enrol'] + df_merged['total_bio'] + df_merged['total_demo']
+# df_merged['month_num'] = df_merged['date'].dt.month
+
+# # ---------------------------------------------------------
+# # 3. PAGE 1 TABLES
+# # ---------------------------------------------------------
+# print("🔹 Generating Page 1 Data...")
+
+# # A. District Daily (Granular)
+# df_daily = df_merged.groupby(['date', 'state', 'district'])[[
+#     'total_transactions', 'total_enrol', 'total_bio', 'total_demo'
+# ]].sum().reset_index()
+
+# # B. State Daily (NEW: For Home Page Calendar)
+# df_state_daily = df_daily.groupby(['date', 'state'])['total_transactions'].sum().reset_index()
+
+# # C. National Daily (NEW: For Home Page Calendar)
+# df_national_daily = df_daily.groupby(['date'])['total_transactions'].sum().reset_index()
+
+# # D. Pincode Daily (For Pulse Drill-down)
+# df_pin_daily = df_merged.groupby(['date', 'state', 'district', 'pincode'])[[
+#     'total_demo', 'total_transactions'
+# ]].sum().reset_index()
+
+# # E. Monthly Aggregates
+# df_state_monthly = df_merged.groupby(['state', 'month_num'])['total_demo'].sum().reset_index()
+# df_dist_monthly = df_merged.groupby(['state', 'district', 'month_num'])['total_demo'].sum().reset_index()
+# df_pin_monthly = df_merged.groupby(['state', 'district', 'pincode', 'month_num'])['total_demo'].sum().reset_index()
+
+# # Map Coords
+# df_pincode_agg = df_merged.groupby(['state', 'district', 'pincode']).agg({'total_transactions': 'sum'}).reset_index()
+# nomi = pgeocode.Nominatim('in')
+# unique_pins = df_pincode_agg['pincode'].astype(str).unique()
+# geo_results = nomi.query_postal_code(unique_pins)
+# df_geo_map = pd.DataFrame({'pincode': unique_pins, 'lat': geo_results.latitude, 'lon': geo_results.longitude})
+# df_pincode_agg['pincode'] = df_pincode_agg['pincode'].astype(str)
+# df_geo_map['pincode'] = df_geo_map['pincode'].astype(str)
+# df_final_pin = df_pincode_agg.merge(df_geo_map, on='pincode', how='left').dropna(subset=['lat', 'lon'])
+
+# q75, q25 = df_final_pin['total_transactions'].quantile(0.75), df_final_pin['total_transactions'].quantile(0.25)
+# df_final_pin['archetype'] = df_final_pin['total_transactions'].apply(lambda x: "High Volume" if x > q75 else ("Remote Node" if x < q25 else "Standard"))
+
+# df_dist_geo = df_final_pin.groupby(['state', 'district']).agg({'lat': 'mean', 'lon': 'mean', 'total_transactions': 'sum', 'pincode': 'count'}).reset_index().rename(columns={'pincode': 'active_pincodes'})
+# df_state_geo = df_final_pin.groupby(['state']).agg({'lat': 'mean', 'lon': 'mean', 'total_transactions': 'sum', 'district': 'nunique'}).reset_index()
+
+# # ---------------------------------------------------------
+# # 4. PAGE 2 RISK ENGINE
+# # ---------------------------------------------------------
+# print("🔹 Generating Page 2 Risk Data...")
+# def calculate_risk(df):
+#     if len(df) < 5: 
+#         df['predicted_enrol'] = df['total_enrol']; df['residual'] = 0; df['z_score'] = 0; df['Status'] = 'Normal'; df['migration_index'] = 0
+#         return df
+#     X = df['total_transactions'].values.reshape(-1, 1); y = df['total_enrol'].values
+#     model = LinearRegression().fit(X, y)
+#     df['predicted_enrol'] = model.predict(X)
+#     df['residual'] = df['total_enrol'] - df['predicted_enrol']
+#     res_std = df['residual'].std()
+#     df['z_score'] = zscore(df['residual']) if res_std != 0 else 0
+#     df['Status'] = df['z_score'].apply(lambda z: "Ghost Risk" if z < -1.5 else ("High Growth" if z > 1.5 else "Normal"))
+#     df['migration_index'] = (df['total_demo'] / df['total_transactions'].replace(0, 1) * 100).round(1)
+#     return df
+
+# state_risk = calculate_risk(df_daily.groupby('state')[['total_transactions', 'total_enrol', 'total_demo']].sum().reset_index())
+# dist_risk = df_daily.groupby(['state', 'district'])[['total_transactions', 'total_enrol', 'total_demo']].sum().reset_index()
+# dist_risk = dist_risk.groupby('state', group_keys=False).apply(calculate_risk)
+# pin_risk = df_merged.groupby(['state', 'district', 'pincode'])[['total_transactions', 'total_enrol', 'total_demo']].sum().reset_index()
+# pin_risk = pin_risk.groupby(['state', 'district'], group_keys=False).apply(calculate_risk)
+
+# # ---------------------------------------------------------
+# # 5. PAGE 3 STRATEGIC PLANNER
+# # ---------------------------------------------------------
+# print("🔹 Generating Page 3 Strategies...")
+
+# def calculate_gap(df):
+#     if len(df) < 3: 
+#         df['enrolment_gap'] = 0
+#         return df
+#     X = df['total_transactions'].values.reshape(-1, 1)
+#     y = df['total_child_enrolments'].values
+#     model = LinearRegression().fit(X, y)
+#     expected = model.predict(X)
+#     df['enrolment_gap'] = (expected - y).round(0)
+#     return df
+
+# df_state_summary = calculate_gap(df_merged.groupby(['state']).agg({
+#     'total_transactions': 'sum', 'total_child_enrolments': 'sum', 'total_adult_enrolments': 'sum', 'total_bio': 'sum', 'total_demo': 'sum'
+# }).reset_index())
+
+# df_dist_summary = calculate_gap(df_merged.groupby(['state', 'district']).agg({
+#     'total_transactions': 'sum', 'total_child_enrolments': 'sum', 'total_adult_enrolments': 'sum', 'total_bio': 'sum', 'total_demo': 'sum'
+# }).reset_index())
+
+# df_pin_summary = df_merged.groupby(['state', 'district', 'pincode']).agg({
+#     'total_transactions': 'sum', 'total_child_enrolments': 'sum', 'total_adult_enrolments': 'sum', 'total_bio': 'sum', 'total_demo': 'sum'
+# }).reset_index()
+# df_pin_summary = df_pin_summary.groupby(['state', 'district'], group_keys=False).apply(calculate_gap)
+
+# # ---------------------------------------------------------
+# # 6. SAVE
+# # ---------------------------------------------------------
+# print("🔹 Saving to DuckDB...")
+# if not os.path.exists('database'): os.makedirs('database')
+# con = duckdb.connect('database/analytics.db')
+
+# # Page 1
+# con.execute("CREATE OR REPLACE TABLE pin_geo AS SELECT * FROM df_final_pin")
+# con.execute("CREATE OR REPLACE TABLE dist_geo AS SELECT * FROM df_dist_geo")
+# con.execute("CREATE OR REPLACE TABLE state_geo AS SELECT * FROM df_state_geo")
+# con.execute("CREATE OR REPLACE TABLE district_daily AS SELECT * FROM df_daily")
+# con.execute("CREATE OR REPLACE TABLE pincode_daily AS SELECT * FROM df_pin_daily")
+# con.execute("CREATE OR REPLACE TABLE state_monthly AS SELECT * FROM df_state_monthly")
+# con.execute("CREATE OR REPLACE TABLE district_monthly AS SELECT * FROM df_dist_monthly")
+# con.execute("CREATE OR REPLACE TABLE pincode_monthly AS SELECT * FROM df_pin_monthly")
+
+# # Home Page (New Calendar Tables)
+# con.execute("CREATE OR REPLACE TABLE national_daily AS SELECT * FROM df_national_daily")
+# con.execute("CREATE OR REPLACE TABLE state_daily AS SELECT * FROM df_state_daily")
+
+# # Page 2
+# con.execute("CREATE OR REPLACE TABLE risk_state AS SELECT * FROM state_risk")
+# con.execute("CREATE OR REPLACE TABLE risk_district AS SELECT * FROM dist_risk")
+# con.execute("CREATE OR REPLACE TABLE risk_pincode AS SELECT * FROM pin_risk")
+
+# # Page 3
+# con.execute("CREATE OR REPLACE TABLE state_summary AS SELECT * FROM df_state_summary")
+# con.execute("CREATE OR REPLACE TABLE district_summary AS SELECT * FROM df_dist_summary")
+# con.execute("CREATE OR REPLACE TABLE pincode_summary AS SELECT * FROM df_pin_summary")
+
+# con.close()
+# print("✅ ETL Complete. Calendar Tables Added.")
 import pandas as pd
 import numpy as np
 import duckdb
@@ -225,7 +398,7 @@ import pgeocode
 from sklearn.linear_model import LinearRegression
 from scipy.stats import zscore
 
-print("🔹 Starting Master ETL Pipeline (With Calendar Aggregates)...")
+print("🔹 Starting Master ETL Pipeline (Original Data Mode)...")
 
 # ---------------------------------------------------------
 # 1. LOAD DATA
@@ -234,16 +407,12 @@ def load_data():
     try:
         base_dir = 'data/level4_processing'
         if not os.path.exists(base_dir):
-            print(f"❌ Error: {base_dir} not found. Run create_level4_data.py first.")
-            exit()
-            
+            print(f"❌ Error: {base_dir} not found."); exit()
         bio = pd.read_csv(os.path.join(base_dir, 'processed_biometric_data.csv'), parse_dates=['date'], dayfirst=True)
         enrol = pd.read_csv(os.path.join(base_dir, 'processed_enrolment_data.csv'), parse_dates=['date'], dayfirst=True)
         demo = pd.read_csv(os.path.join(base_dir, 'processed_demographic_data.csv'), parse_dates=['date'], dayfirst=True)
         return bio, enrol, demo
-    except Exception as e:
-        print(f"❌ Error loading data: {e}")
-        exit()
+    except Exception as e: print(f"❌ Error: {e}"); exit()
 
 df_bio, df_enrol, df_demo = load_data()
 
@@ -263,27 +432,24 @@ df_merged['total_transactions'] = df_merged['total_enrol'] + df_merged['total_bi
 df_merged['month_num'] = df_merged['date'].dt.month
 
 # ---------------------------------------------------------
-# 3. PAGE 1 TABLES
+# 3. AGGREGATES
 # ---------------------------------------------------------
-print("🔹 Generating Page 1 Data...")
+print("🔹 Generating Aggregates...")
 
-# A. District Daily (Granular)
+# Daily
 df_daily = df_merged.groupby(['date', 'state', 'district'])[[
     'total_transactions', 'total_enrol', 'total_bio', 'total_demo'
 ]].sum().reset_index()
 
-# B. State Daily (NEW: For Home Page Calendar)
 df_state_daily = df_daily.groupby(['date', 'state'])['total_transactions'].sum().reset_index()
-
-# C. National Daily (NEW: For Home Page Calendar)
 df_national_daily = df_daily.groupby(['date'])['total_transactions'].sum().reset_index()
 
-# D. Pincode Daily (For Pulse Drill-down)
+# Pincode
 df_pin_daily = df_merged.groupby(['date', 'state', 'district', 'pincode'])[[
     'total_demo', 'total_transactions'
 ]].sum().reset_index()
 
-# E. Monthly Aggregates
+# Monthly Aggregates
 df_state_monthly = df_merged.groupby(['state', 'month_num'])['total_demo'].sum().reset_index()
 df_dist_monthly = df_merged.groupby(['state', 'district', 'month_num'])['total_demo'].sum().reset_index()
 df_pin_monthly = df_merged.groupby(['state', 'district', 'pincode', 'month_num'])['total_demo'].sum().reset_index()
@@ -305,9 +471,73 @@ df_dist_geo = df_final_pin.groupby(['state', 'district']).agg({'lat': 'mean', 'l
 df_state_geo = df_final_pin.groupby(['state']).agg({'lat': 'mean', 'lon': 'mean', 'total_transactions': 'sum', 'district': 'nunique'}).reset_index()
 
 # ---------------------------------------------------------
-# 4. PAGE 2 RISK ENGINE
+# 4. FORECAST ENGINE (ORIGINAL DATA - NO FILLING)
 # ---------------------------------------------------------
-print("🔹 Generating Page 2 Risk Data...")
+print("🔹 Running Forecast Engine...")
+
+def generate_damped_forecast(df, level_cols):
+    """Generates forecasts using only real data. Does not invent missing months."""
+    forecasts = []
+    grouped = df.groupby(level_cols)
+    
+    for name, group in grouped:
+        group['date'] = pd.to_datetime(group['date'])
+        
+        # Resample to ensure we respect the timeline, but values remain 0 if missing
+        monthly = group.set_index('date').resample('MS')['total_transactions'].sum().reset_index()
+        
+        # Filter for actual data to calculate trend (Ignore the 0s in gaps for the math)
+        valid_history = monthly[monthly['total_transactions'] > 0]
+        
+        if len(valid_history) < 2: continue
+        
+        # Forecast Logic based on VALID history
+        recent = valid_history.tail(3)
+        last_val = recent.iloc[-1]['total_transactions']
+        # We project from the last ACTUAL date, skipping the gap
+        last_date = recent.iloc[-1]['date'] 
+        
+        delta = np.mean(np.diff(recent['total_transactions']))
+        damping = 0.5 
+        
+        # Generate Forecast rows
+        curr = last_val
+        for i in range(1, 4):
+            if delta > 0: delta *= damping
+            curr += delta
+            # We add months to the LAST KNOWN DATE.
+            # If August is missing, Sept/Oct/Nov become the forecast start points relative to timeline
+            # Note: To align with the chart, we project from the dataset's max date
+            max_timeline_date = monthly['date'].max()
+            future_date = max_timeline_date + pd.DateOffset(months=i)
+            
+            record = {k: v for k, v in zip(level_cols, name if isinstance(name, tuple) else [name])}
+            record['date'] = future_date
+            record['total_transactions'] = max(0, int(curr))
+            record['Type'] = 'Forecast'
+            forecasts.append(record)
+            
+        # Add Historical Data (Zeroes included if they exist in resampling)
+        for _, row in monthly.iterrows():
+            record = {k: v for k, v in zip(level_cols, name if isinstance(name, tuple) else [name])}
+            record['date'] = row['date']
+            record['total_transactions'] = int(row['total_transactions'])
+            record['Type'] = 'Historical'
+            forecasts.append(record)
+            
+    return pd.DataFrame(forecasts)
+
+print(" -> Forecasting National...")
+f_nat = generate_damped_forecast(df_national_daily.assign(country='India'), ['country'])
+print(" -> Forecasting States...")
+f_state = generate_damped_forecast(df_state_daily, ['state'])
+print(" -> Forecasting Districts...")
+f_dist = generate_damped_forecast(df_daily, ['state', 'district'])
+
+# ---------------------------------------------------------
+# 5. RISK ENGINE
+# ---------------------------------------------------------
+print("🔹 Generating Risk Data...")
 def calculate_risk(df):
     if len(df) < 5: 
         df['predicted_enrol'] = df['total_enrol']; df['residual'] = 0; df['z_score'] = 0; df['Status'] = 'Normal'; df['migration_index'] = 0
@@ -328,15 +558,8 @@ dist_risk = dist_risk.groupby('state', group_keys=False).apply(calculate_risk)
 pin_risk = df_merged.groupby(['state', 'district', 'pincode'])[['total_transactions', 'total_enrol', 'total_demo']].sum().reset_index()
 pin_risk = pin_risk.groupby(['state', 'district'], group_keys=False).apply(calculate_risk)
 
-# ---------------------------------------------------------
-# 5. PAGE 3 STRATEGIC PLANNER
-# ---------------------------------------------------------
-print("🔹 Generating Page 3 Strategies...")
-
 def calculate_gap(df):
-    if len(df) < 3: 
-        df['enrolment_gap'] = 0
-        return df
+    if len(df) < 3: df['enrolment_gap'] = 0; return df
     X = df['total_transactions'].values.reshape(-1, 1)
     y = df['total_child_enrolments'].values
     model = LinearRegression().fit(X, y)
@@ -344,17 +567,9 @@ def calculate_gap(df):
     df['enrolment_gap'] = (expected - y).round(0)
     return df
 
-df_state_summary = calculate_gap(df_merged.groupby(['state']).agg({
-    'total_transactions': 'sum', 'total_child_enrolments': 'sum', 'total_adult_enrolments': 'sum', 'total_bio': 'sum', 'total_demo': 'sum'
-}).reset_index())
-
-df_dist_summary = calculate_gap(df_merged.groupby(['state', 'district']).agg({
-    'total_transactions': 'sum', 'total_child_enrolments': 'sum', 'total_adult_enrolments': 'sum', 'total_bio': 'sum', 'total_demo': 'sum'
-}).reset_index())
-
-df_pin_summary = df_merged.groupby(['state', 'district', 'pincode']).agg({
-    'total_transactions': 'sum', 'total_child_enrolments': 'sum', 'total_adult_enrolments': 'sum', 'total_bio': 'sum', 'total_demo': 'sum'
-}).reset_index()
+df_state_summary = calculate_gap(df_merged.groupby(['state']).agg({'total_transactions': 'sum', 'total_child_enrolments': 'sum', 'total_adult_enrolments': 'sum', 'total_bio': 'sum', 'total_demo': 'sum'}).reset_index())
+df_dist_summary = calculate_gap(df_merged.groupby(['state', 'district']).agg({'total_transactions': 'sum', 'total_child_enrolments': 'sum', 'total_adult_enrolments': 'sum', 'total_bio': 'sum', 'total_demo': 'sum'}).reset_index())
+df_pin_summary = df_merged.groupby(['state', 'district', 'pincode']).agg({'total_transactions': 'sum', 'total_child_enrolments': 'sum', 'total_adult_enrolments': 'sum', 'total_bio': 'sum', 'total_demo': 'sum'}).reset_index()
 df_pin_summary = df_pin_summary.groupby(['state', 'district'], group_keys=False).apply(calculate_gap)
 
 # ---------------------------------------------------------
@@ -364,29 +579,24 @@ print("🔹 Saving to DuckDB...")
 if not os.path.exists('database'): os.makedirs('database')
 con = duckdb.connect('database/analytics.db')
 
-# Page 1
 con.execute("CREATE OR REPLACE TABLE pin_geo AS SELECT * FROM df_final_pin")
 con.execute("CREATE OR REPLACE TABLE dist_geo AS SELECT * FROM df_dist_geo")
 con.execute("CREATE OR REPLACE TABLE state_geo AS SELECT * FROM df_state_geo")
 con.execute("CREATE OR REPLACE TABLE district_daily AS SELECT * FROM df_daily")
 con.execute("CREATE OR REPLACE TABLE pincode_daily AS SELECT * FROM df_pin_daily")
-con.execute("CREATE OR REPLACE TABLE state_monthly AS SELECT * FROM df_state_monthly")
-con.execute("CREATE OR REPLACE TABLE district_monthly AS SELECT * FROM df_dist_monthly")
-con.execute("CREATE OR REPLACE TABLE pincode_monthly AS SELECT * FROM df_pin_monthly")
-
-# Home Page (New Calendar Tables)
 con.execute("CREATE OR REPLACE TABLE national_daily AS SELECT * FROM df_national_daily")
 con.execute("CREATE OR REPLACE TABLE state_daily AS SELECT * FROM df_state_daily")
 
-# Page 2
+con.execute("CREATE OR REPLACE TABLE forecast_nat AS SELECT * FROM f_nat")
+con.execute("CREATE OR REPLACE TABLE forecast_state AS SELECT * FROM f_state")
+con.execute("CREATE OR REPLACE TABLE forecast_dist AS SELECT * FROM f_dist")
+
 con.execute("CREATE OR REPLACE TABLE risk_state AS SELECT * FROM state_risk")
 con.execute("CREATE OR REPLACE TABLE risk_district AS SELECT * FROM dist_risk")
 con.execute("CREATE OR REPLACE TABLE risk_pincode AS SELECT * FROM pin_risk")
-
-# Page 3
 con.execute("CREATE OR REPLACE TABLE state_summary AS SELECT * FROM df_state_summary")
 con.execute("CREATE OR REPLACE TABLE district_summary AS SELECT * FROM df_dist_summary")
 con.execute("CREATE OR REPLACE TABLE pincode_summary AS SELECT * FROM df_pin_summary")
 
 con.close()
-print("✅ ETL Complete. Calendar Tables Added.")
+print("✅ ETL Complete. Original Data Preserved.")
