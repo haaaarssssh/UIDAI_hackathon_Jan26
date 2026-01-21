@@ -832,10 +832,11 @@ if not forecast_df.empty:
         bargap=0.05 # Very thick bars
     )
     st.plotly_chart(fig, use_container_width=True)
+    st.caption('No data recorded in August 2025 !')
 else:
     st.warning("Insufficient data for forecast.")
 
-st.caption('No data recorded in August 2025')
+
 
 with st.expander("ℹ️ How to interpret the Capacity Stress Test"):
     st.markdown(f"""
